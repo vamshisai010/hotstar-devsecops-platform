@@ -1,16 +1,11 @@
-name: Deploy Node App to EKS
+name: CI-CD Pipeline
 
 on:
   push:
-    branches: [ "main" ]
-
-env:
-  AWS_REGION: ap-south-1
-  ECR_REPOSITORY: hotstar-repo
-  CLUSTER_NAME: hotstar-cluster
+    branches: ["main"]
 
 jobs:
-  deploy:
+  build-deploy:
     runs-on: ubuntu-latest
 
     steps:
@@ -20,35 +15,42 @@ jobs:
     - name: Configure AWS
       uses: aws-actions/configure-aws-credentials@v2
       with:
-        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY }}
-        aws-secret-access-key: ${{ secrets.AWS_SECRET_KEY }}
-        aws-region: ${{ env.AWS_REGION }}
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ secrets.AWS_REGION }}
 
     - name: Login to ECR
       run: |
-        aws ecr get-login-password --region $AWS_REGION \
+        aws ecr get-login-password --region ${{ secrets.AWS_REGION }} \
         | docker login --username AWS \
-        --password-stdin ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.$AWS_REGION.amazonaws.com
+        --password-stdin ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com
 
-    - name: Build Docker Image
+    - name: Build Image
       run: |
-        docker build -t hotstar-clone .
+        docker build -t ${{ secrets.ECR_REPOSITORY }} .
 
     - name: Tag Image
       run: |
-        docker tag hotstar-clone:latest \
-        ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.$AWS_REGION.amazonaws.com/hotstar-clone:latest
+        IMAGE_URI=${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ secrets.ECR_REPOSITORY }}:latest
+        docker tag ${{ secrets.ECR_REPOSITORY }}:latest $IMAGE_URI
+        echo "IMAGE_URI=$IMAGE_URI" >> $GITHUB_ENV
 
-    - name: Push to ECR
+    - name: Push Image
       run: |
-        docker push ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.$AWS_REGION.amazonaws.com/hotstar-clone:latest
+        docker push $IMAGE_URI
 
     - name: Update kubeconfig
       run: |
-        aws eks update-kubeconfig --name $CLUSTER_NAME --region $AWS_REGION
+        aws eks update-kubeconfig \
+        --region ${{ secrets.AWS_REGION }} \
+        --name ${{ secrets.EKS_CLUSTER_NAME }}
 
-    - name: Deploy to EKS
+    # 🔥 KEY STEP (DO NOT MISS)
+    - name: Deploy to EKS using existing YAML
       run: |
-        IMAGE=${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.$AWS_REGION.amazonaws.com/hotstar-clone:latest
-        sed -i "s|IMAGE_URI|$IMAGE|g" k8s/deployment.yaml
-        kubectl apply -f k8s/deployment.yaml
+        kubectl apply -f k8s/
+
+        kubectl set image deployment/hotstar-deployment \
+        hotstar=$IMAGE_URI
+
+        kubectl rollout status deployment/hotstar-deployment
