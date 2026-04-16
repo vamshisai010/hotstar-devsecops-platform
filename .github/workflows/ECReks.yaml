@@ -48,7 +48,7 @@ jobs:
     # 🔥 KEY STEP (DO NOT MISS)
     - name: Deploy to EKS using existing YAML
       run: |
-        kubectl apply -f k8s/
+        kubectl apply -f K8S/
 
         kubectl set image deployment/hotstar-deployment \
         hotstar=$IMAGE_URI
