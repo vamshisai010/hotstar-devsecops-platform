@@ -20,7 +20,7 @@ spec:
       containers:
       - name: hotstar-devsecops
 
-        image: vamshisai010/hotstar-devsecops-platform:15
+        image: vamshisai010/hotstar-devsecops-platform:17
 
         ports:
         - containerPort: 8080
