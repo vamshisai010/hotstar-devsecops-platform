@@ -23,7 +23,7 @@ spec:
         image: vamshisai010/hotstar-devsecops-platform:latest
 
         ports:
-        - containerPort: 3000
+        - containerPort: 80
 
         resources:
           requests:
