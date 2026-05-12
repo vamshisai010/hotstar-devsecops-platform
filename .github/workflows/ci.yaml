@@ -1,0 +1,110 @@
+name: SecureFlow-CI-Pipeline
+
+on:
+  push:
+    branches:
+      - main
+
+  pull_request:
+    branches:
+      - main
+
+env:
+  IMAGE_NAME: hotstar-devsecops-platform
+
+jobs:
+
+  build-test-scan:
+
+    runs-on: ubuntu-latest
+
+    steps:
+
+    # Checkout Source Code
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    # Setup Java
+    - name: Set up JDK 17
+      uses: actions/setup-java@v4
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+
+    # Cache Maven Dependencies
+    - name: Cache Maven Packages
+      uses: actions/cache@v4
+      with:
+        path: ~/.m2
+        key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+        restore-keys: |
+          ${{ runner.os }}-m2
+
+    # Maven Build
+    - name: Maven Build
+      run: mvn clean install
+
+    # Unit Tests
+    - name: Run Tests
+      run: mvn test
+
+    # SonarQube Scan
+    - name: SonarQube Scan
+      run: |
+        mvn sonar:sonar \
+        -Dsonar.projectKey=hotstar-devsecops-platform \
+        -Dsonar.host.url=${{ secrets.SONAR_HOST_URL }} \
+        -Dsonar.login=${{ secrets.SONAR_TOKEN }}
+
+    # OWASP Dependency Check
+    - name: OWASP Dependency Check
+      uses: dependency-check/Dependency-Check_Action@main
+      with:
+        project: 'hotstar-devsecops-platform'
+        path: '.'
+        format: 'HTML'
+
+    # Upload Dependency Report
+    - name: Upload Dependency Report
+      uses: actions/upload-artifact@v4
+      with:
+        name: Dependency-Check-Report
+        path: reports
+
+    # Docker Login
+    - name: DockerHub Login
+      uses: docker/login-action@v3
+      with:
+        username: ${{ secrets.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
+
+    # Build Docker Image
+    - name: Build Docker Image
+      run: |
+        docker build -t ${{ secrets.DOCKER_USERNAME }}/hotstar-devsecops-platform:${{ github.run_number }} .
+
+    # Trivy Image Scan
+    - name: Trivy Vulnerability Scan
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: '${{ secrets.DOCKER_USERNAME }}/hotstar-devsecops-platform:${{ github.run_number }}'
+        format: 'table'
+        exit-code: '1'
+        ignore-unfixed: true
+        vuln-type: 'os,library'
+        severity: 'CRITICAL,HIGH'
+
+    # Push Docker Image
+    - name: Push Docker Image
+      run: |
+        docker push ${{ secrets.DOCKER_USERNAME }}/hotstar-devsecops-platform:${{ github.run_number }}
+
+    # Save Image Tag Artifact
+    - name: Save Image Tag
+      run: echo "${{ github.run_number }}" > image-tag.txt
+
+    - name: Upload Image Tag
+      uses: actions/upload-artifact@v4
+      with:
+        name: image-tag
+        path: image-tag.txt
