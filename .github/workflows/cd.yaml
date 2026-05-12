@@ -1,16 +1,14 @@
 name: SecureFlow-CD-Pipeline
 
 on:
-  workflow_run:
-    workflows:
-      - "SecureFlow-CI-Pipeline"
-    types:
-      - completed
+  workflow_dispatch:
 
 jobs:
 
   deploy:
+
     runs-on: ubuntu-latest
+
     steps:
 
       # Checkout Repository
@@ -31,14 +29,14 @@ jobs:
         with:
           version: latest
 
-      # Configure kubeconfig for EKS
+      # Configure kubeconfig
       - name: Update kubeconfig
         run: |
           aws eks update-kubeconfig \
             --region ${{ secrets.AWS_REGION }} \
             --name ${{ secrets.EKS_CLUSTER_NAME }}
 
-      # Verify Cluster Connection
+      # Verify Cluster
       - name: Verify Cluster
         run: |
           kubectl get nodes
@@ -49,21 +47,21 @@ jobs:
           kubectl apply -f K8S/deployment.yml
           kubectl apply -f K8S/service.yml
 
-      # Verify Deployment Rollout
+      # Verify Deployment
       - name: Verify Deployment
         run: |
           kubectl rollout status deployment/hotstar-devsecops
 
-      # List Pods
-      - name: List Pods
+      # Check Pods
+      - name: Get Pods
         run: |
           kubectl get pods -o wide
 
-      # List Services
-      - name: List Services
+      # Check Services
+      - name: Get Services
         run: |
           kubectl get svc
 
       # Success Message
       - name: Deployment Successful
-        run: echo "Application deployed successfully to EKS"
+        run: echo "Application deployed successfully"
