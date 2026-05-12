@@ -1,0 +1,79 @@
+name: SecureFlow-CD-Pipeline
+
+on:
+  workflow_run:
+    workflows: ["SecureFlow-CI-Pipeline"]
+    types:
+      - completed
+
+jobs:
+
+  deploy:
+
+    runs-on: ubuntu-latest
+
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+
+    steps:
+
+    # Checkout Repository
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    # Download Image Tag
+    - name: Download Artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: image-tag
+
+    # Read Image Tag
+    - name: Read Image Tag
+      id: image
+      run: |
+        TAG=$(cat image-tag.txt)
+        echo "tag=$TAG" >> $GITHUB_OUTPUT
+
+    # Configure AWS Credentials
+    - name: Configure AWS Credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ secrets.AWS_REGION }}
+
+    # Install kubectl
+    - name: Install kubectl
+      uses: azure/setup-kubectl@v4
+      with:
+        version: 'latest'
+
+    # Configure kubeconfig
+    - name: Update kubeconfig
+      run: |
+        aws eks update-kubeconfig \
+          --region ${{ secrets.AWS_REGION }} \
+          --name ${{ secrets.EKS_CLUSTER_NAME }}
+
+    # Update Deployment Image
+    - name: Update Kubernetes Deployment
+      run: |
+        sed -i "s|IMAGE_TAG|${{ steps.image.outputs.tag }}|g" kubernetes/deployment.yaml
+
+    # Deploy to Kubernetes
+    - name: Deploy to EKS
+      run: |
+        kubectl apply -f kubernetes/deployment.yaml
+        kubectl apply -f kubernetes/service.yaml
+
+    # Verify Deployment
+    - name: Verify Deployment
+      run: |
+        kubectl rollout status deployment/hotstar-devsecops
+
+    # Get Pods
+    - name: List Pods
+      run: kubectl get pods
+
+    # Deployment Success Message
+    - name: Deployment Successful
+      run: echo "Application deployed successfully"
