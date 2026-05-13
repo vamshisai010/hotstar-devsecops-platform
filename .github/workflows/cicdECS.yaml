@@ -1,0 +1,117 @@
+name: SecureFlow-ECS-CICD
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  IMAGE_NAME: hotstar-devsecops-platform
+  IMAGE_TAG: latest
+
+jobs:
+
+  build-scan-push-deploy:
+
+    runs-on: ubuntu-latest
+
+    steps:
+
+    # =========================
+    # CHECKOUT SOURCE CODE
+    # =========================
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+
+    # =========================
+    # SETUP NODEJS
+    # =========================
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 18
+
+    # =========================
+    # INSTALL DEPENDENCIES
+    # =========================
+    - name: Install Dependencies
+      run: npm install
+
+    # =========================
+    # BUILD REACT APPLICATION
+    # =========================
+    - name: Build React App
+      run: npm run build
+
+    # =========================
+    # DOCKER LOGIN
+    # =========================
+    - name: Login to DockerHub
+      uses: docker/login-action@v3
+      with:
+        username: ${{ secrets.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
+
+    # =========================
+    # BUILD DOCKER IMAGE
+    # =========================
+    - name: Build Docker Image
+      run: |
+        docker build \
+        -t ${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }} .
+
+    # =========================
+    # TRIVY SECURITY SCAN
+    # =========================
+    - name: Run Trivy Vulnerability Scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: ${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
+        format: table
+        exit-code: 0
+        ignore-unfixed: true
+        vuln-type: 'os,library'
+        severity: CRITICAL,HIGH
+
+    # =========================
+    # PUSH DOCKER IMAGE
+    # =========================
+    - name: Push Docker Image
+      run: |
+        docker push \
+        ${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
+
+    # =========================
+    # CONFIGURE AWS
+    # =========================
+    - name: Configure AWS Credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ secrets.AWS_REGION }}
+
+    # =========================
+    # FORCE ECS REDEPLOYMENT
+    # =========================
+    - name: Deploy Latest Image to ECS
+      run: |
+        aws ecs update-service \
+          --cluster ${{ secrets.ECS_CLUSTER }} \
+          --service ${{ secrets.ECS_SERVICE }} \
+          --force-new-deployment
+
+    # =========================
+    # VERIFY ECS DEPLOYMENT
+    # =========================
+    - name: Wait For ECS Stability
+      run: |
+        aws ecs wait services-stable \
+          --cluster ${{ secrets.ECS_CLUSTER }} \
+          --services ${{ secrets.ECS_SERVICE }}
+
+    # =========================
+    # SUCCESS MESSAGE
+    # =========================
+    - name: Deployment Successful
+      run: echo "Application deployed successfully to ECS"
