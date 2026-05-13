@@ -1,7 +1,9 @@
 name: SecureFlow-ECS-CICD
 
 on:
-  push:
+  workflow_dispatch:
+
+  pull_request:
     branches:
       - main
 
